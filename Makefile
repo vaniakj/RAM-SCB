@@ -69,6 +69,8 @@ rundir:
 	cp input/ne_full.dat ${RUNDIR}/
 	cp input/initialization.nc ${RUNDIR}/IM/
 	cp input/QinDenton_20130317_1min.txt ${RUNDIR}/IM/
+	cp input/NitrogenCrossSections.dat ${RUNDIR}/IM/
+	cp input/AEindex.txt ${RUNDIR}/
 	cd ${RUNDIR}; \
 	ln -s ../input/bav_diffcoef_chorus_rpa_Kp*.PAonly.dat .
 	cd ${RUNDIR}/IM/output; \
@@ -77,12 +79,16 @@ rundir:
 		mkdir input_ram input_scb output_swmf;    \
 		mkdir restartIN restartOUT;               \
 		tar xzf ${IMDIR}/input/ramscb_inputs.tgz; \
+		mv Input_git/EMIC_model input_ram/; \
+		mv Input_git/HBand input_ram/;  \
+		mv Input_git/HeBand input_ram/; \
 		mv Input_git/w2k.dat ../;		  \
 		mv Input_git/W05_coeff.dat ../;		    \
 		mv Input_git/omni.txt ../;		    \
 		mv Input_git/*geomlt*.txt input_ram/; \
                 mv initialization.nc input_ram/;            \
-		mv QinDenton_20130317_1min.txt input_scb/;
+		mv QinDenton_20130317_1min.txt input_scb/;  \
+		mv NitrogenCrossSections.dat input_ram/;
 	@(if [ "$(STANDALONE)" != "NO" ]; then \
 		cd ${RUNDIR} ; \
 		cp ${IMDIR}/Param/PARAM.in.default ./PARAM.in; \
@@ -101,6 +107,7 @@ TESTDIR1 = run_test1
 TESTDIR2 = run_test2
 TESTDIR3 = run_test3
 TESTDIR4 = run_test4
+TESTDIRC = run_test
 
 test:
 	@(make test1)
@@ -163,14 +170,14 @@ testTravis_check:
                 ${TESTDIR3}/output_scb/hI_output_d20130317_t001500.dat \
                 ${TESTDIR4}/output_scb/hI_output_d20130317_t001500.dat \
                 >> testTravis.diff
-	ncdump -v "FluxH+","B_xyz"                                     \
+	ncdump -v "Flux_H","B_xyz"                                     \
                ${TESTDIR3}/output_ram/sat1_d20130317_t000000.nc        \
                | sed -e '1,/data:/d' >                                 \
                ${TESTDIR3}/output_ram/sat1.test
 	ncrcat ${TESTDIR4}/output_ram/sat1_d20130317_t000000.nc       \
                ${TESTDIR4}/output_ram/sat1_d20130317_t001000.nc       \
                ${TESTDIR4}/output_ram/sat1.nc
-	ncdump -v "FluxH+","B_xyz" ${TESTDIR4}/output_ram/sat1.nc     \
+	ncdump -v "Flux_H","B_xyz" ${TESTDIR4}/output_ram/sat1.nc     \
                | sed -e '1,/data:/d' >                                \
                ${TESTDIR4}/output_ram/sat1.test        
 	${SCRIPTDIR}/DiffNum.pl -b -a=1e-9                            \
@@ -212,7 +219,7 @@ test1_check:
 		${TESTDIR1}/output_ram/pressure_d20130317_t001500.dat   \
 		${IMDIR}/output/test1/pressure.ref                      \
 		>> test1.diff			        
-	ncdump -v "FluxH+","B_xyz"                              	\
+	ncdump -v "Flux_H","B_xyz"                              	\
                ${TESTDIR1}/output_ram/sat1_d20130317_t000000.nc 	\
                | sed -e '1,/data:/d' >                          	\
                ${TESTDIR1}/output_ram/sat1.test
@@ -220,7 +227,7 @@ test1_check:
 		${TESTDIR1}/output_ram/sat1.test                	\
 		${IMDIR}/output/test1/sat1.ref                  	\
 		>> test1.diff
-	ncdump -v "FluxH+","B_xyz"                              	\
+	ncdump -v "Flux_H","B_xyz"                              	\
                ${TESTDIR1}/output_ram/sat2_d20130317_t000000.nc 	\
                | sed -e '1,/data:/d' >                          	\
                ${TESTDIR1}/output_ram/sat2.test
@@ -268,7 +275,7 @@ test2_check:
 	ncrcat ${TESTDIR2}/output_ram/sat1_d20130317_t000000.nc       \
 	       ${TESTDIR2}/output_ram/sat1_d20130317_t001000.nc       \
 	       ${TESTDIR2}/output_ram/sat1.nc
-	ncdump -v "FluxH+","B_xyz" ${TESTDIR2}/output_ram/sat1.nc     \
+	ncdump -v "Flux_H","B_xyz" ${TESTDIR2}/output_ram/sat1.nc     \
                | sed -e '1,/data:/d' >                                \
                ${TESTDIR2}/output_ram/sat1.test        
 	${SCRIPTDIR}/DiffNum.pl -b -a=1e-9                            \
@@ -278,7 +285,7 @@ test2_check:
 	ncrcat ${TESTDIR2}/output_ram/sat2_d20130317_t000000.nc       \
                ${TESTDIR2}/output_ram/sat2_d20130317_t001000.nc       \
                ${TESTDIR2}/output_ram/sat2.nc
-	ncdump -v "FluxH+","B_xyz" ${TESTDIR2}/output_ram/sat2.nc     \
+	ncdump -v "Flux_H","B_xyz" ${TESTDIR2}/output_ram/sat2.nc     \
                | sed -e '1,/data:/d' > \
                ${TESTDIR2}/output_ram/sat2.test
 	${SCRIPTDIR}/DiffNum.pl -b -a=1e-9                            \
@@ -364,7 +371,7 @@ test4_check:
 	ncrcat ${TESTDIR4}/output_ram/sat1_d20130317_t000000.nc       \
                ${TESTDIR4}/output_ram/sat1_d20130317_t001000.nc       \
                ${TESTDIR4}/output_ram/sat1.nc
-	ncdump -v "FluxH+","B_xyz" ${TESTDIR4}/output_ram/sat1.nc     \
+	ncdump -v "Flux_H","B_xyz" ${TESTDIR4}/output_ram/sat1.nc     \
                | sed -e '1,/data:/d' >                                \
                ${TESTDIR4}/output_ram/sat1.test        
 	${SCRIPTDIR}/DiffNum.pl -b -a=1e-9                            \
@@ -374,11 +381,46 @@ test4_check:
 	ncrcat ${TESTDIR4}/output_ram/sat2_d20130317_t000000.nc       \
                ${TESTDIR4}/output_ram/sat2_d20130317_t001000.nc       \
                ${TESTDIR4}/output_ram/sat2.nc
-	ncdump -v "FluxH+","B_xyz" ${TESTDIR4}/output_ram/sat2.nc     \
+	ncdump -v "Flux_H","B_xyz" ${TESTDIR4}/output_ram/sat2.nc     \
                | sed -e '1,/data:/d' >                                \
                ${TESTDIR4}/output_ram/sat2.test
 	${SCRIPTDIR}/DiffNum.pl -b -a=1e-9                            \
                 ${TESTDIR4}/output_ram/sat2.test                      \
                 ${IMDIR}/output/test3/sat2.ref                        \
                 >> test4.diff
+	@echo "Test Successful!"
+
+#TEST EMIC----------------------------------
+testEMIC:
+	@echo "starting..." > testEMIC.diff
+	@echo "testEMIC_compile..." >> testEMIC.diff
+	make testEMIC_compile
+	@echo "testEMIC_rundir..." >> testEMIC.diff
+	make testEMIC_rundir PARAMFILE=PARAM.in.testEMIC
+	@echo "testEMIC_run..." >> testEMIC.diff
+	make testEMIC_run MPIRUN=
+	@echo "testEMIC_check..." >> testEMIC.diff
+	make testEMIC_check
+
+testEMIC_compile:
+	make
+
+testEMIC_rundir:
+	rm -rf ${TESTDIRC}
+	make rundir RUNDIR=${TESTDIRC} STANDALONE="YES"
+	cp Param/${PARAMFILE} ${TESTDIRC}/PARAM.in
+	cp input/sat*.dat ${TESTDIRC}/
+
+testEMIC_run:
+	cd ${TESTDIRC}; ${MPIRUN} ./ram_scb.exe | tee runlog;
+
+testEMIC_check:
+	${SCRIPTDIR}/DiffNum.pl -b -a=1e-9                              \
+	        ${TESTDIRC}/output_ram/log_d20130317_t000000.log        \
+	        ${IMDIR}/output/testEMIC/log.ref                           \
+	        > testEMIC.diff
+	${SCRIPTDIR}/DiffNum.pl -b -a=1e-9                              \
+	        ${TESTDIRC}/output_ram/pressure_d20130317_t001500.dat   \
+	        ${IMDIR}/output/testEMIC/pressure.ref                      \
+	        >> testEMIC.diff
 	@echo "Test Successful!"

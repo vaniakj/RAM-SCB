@@ -13,11 +13,12 @@ module ModRamIndices
   contains
   !===========================================================================
   subroutine read_index_file(StartTime, EndTime, NameFile)
+    ! Read RAMIndices file
 
     use ModRamMain, ONLY: Real8_
-    use ModRamVariables, ONLY: nRawKp, nRawF107, kptime, &
-                               timeKp, timeF107, rawKp, rawF107
-
+    use ModRamVariables, ONLY: nRawKp, nRawF107, nRawAE, kptime, &
+                               timeKp, timeF107, timeAE, rawKp, rawF107, rawAE
+    use ModRamParams,   ONLY: DoUseEMIC
     use ModTimeConvert, ONLY: TimeType, time_int_to_real
     use ModIoUnit,      ONLY: UNITTMP_
 
@@ -34,6 +35,9 @@ module ModRamIndices
     character(len=100) :: StringLine, StringFmt
     real(kind=Real8_) :: tmpKp(8)
 
+    integer :: cyy, cmm, cdd, chh, cmin, ij, ierr, iLines
+    character(len=100) :: header, fname
+    
     logical :: DoTest, DoTestMe
     character(len=*), parameter :: NameSub='read_index_file'
     !------------------------------------------------------------------------
@@ -134,7 +138,31 @@ module ModRamIndices
     end do
     
     close(UNITTMP_)
-    
+
+    If (DoUseEMIC) then
+       ! Read AE index from the file
+       fname = 'AEindex.txt'
+       open(UNITTMP_, FILE=fname, status = 'UNKNOWN', action='READ')
+       ij = 0
+       ierr = 0
+       do while (ierr==0)
+          read(UNITTMP_, *, iostat=ierr)header
+          ij = ij + 1
+       end do
+       ilines = ij - 1
+       rewind(UNITTMP_)
+       
+       nRawAE = iLines
+       allocate(timeAE(nRawAE), rawAE(nRawAE))
+       do ij=1, iLines
+          read(UNITTMP_, '(i4,i2,i2,1x,i2,1x,i2,1x,i4)') &
+               cyy, cmm, cdd, chh, cmin, rawAE(ij)
+          call time_int_to_real((/cyy,cmm,cdd,chh,cmin,0,0/), timeAE(ij))
+       end do
+       
+       close(UNITTMP_)
+    end If
+
   end subroutine read_index_file
 
   !===========================================================================
@@ -162,24 +190,25 @@ module ModRamIndices
   end subroutine init_indices
 
   !===========================================================================
-  subroutine get_indices(timeNow, kpNow, f10Now)
+  subroutine get_indices(timeNow, kpNow, f10Now, AENow)
     ! Interpolate Kp to current time.
     ! Use f10.7 according to current day.
     ! Input time format should be floating point used in ModTimeConvert.
     use ModRamGrids,     ONLY: nS
-    use ModRamParams,    ONLY: FixedComposition
-    use ModRamVariables, ONLY: nRawKp, nRawF107, Kp, F107, timeKp, &
-                               timeF107, rawKp, rawF107, species
-
+    use ModRamParams,    ONLY: FixedComposition, OfracN
+    use ModRamVariables, ONLY: nRawKp, nRawF107, nRawAE, Kp, F107, AE, timeKp, &
+                               timeF107, timeAE, rawKp, rawF107, rawAE, species
+    use ModRamParams,    ONLY: DoUseEMIC
     use ModRamMain, ONLY: Real8_
     
     implicit none
 
     real(kind=Real8_), intent(in) :: timeNow
     real(kind=Real8_), intent(out):: kpNow, f10Now
+    integer,           intent(out):: AENow
     
     integer :: iTime, i
-    real(kind=Real8_) :: dTime, dateNow, BEXP, AHE0, AHE1, GEXP
+    real(kind=Real8_) :: dTime, dateNow, BEXP, AHE0, AHE1, GEXP, Operc
 
     !------------------------------------------------------------------------
     ! NOTE: AS MORE SOURCES ARE ADDED, USE CASE STATEMENTS TO 
@@ -205,10 +234,26 @@ module ModRamIndices
           exit
        end if
     end do
-    
+
+    if(DoUseEMIC) then
+       ! Find points in timeAE about current time.
+       iTime = 1
+       do while ( (iTime .lt. nRawAE) .and. (timeAE(iTime) .le. timeNow))
+          iTime = iTime + 1
+       end do
+       ! Interpolate AE index to current time 
+       dTime = (timeNow - timeAE(iTime-1))/(timeAE(iTime)-timeAE(iTime-1))
+       AENow = int(dTime*(rawAE(iTIme)-rawAE(iTime-1))+rawAE(iTime-1))
+    else
+       AENow = 0
+    end if
+
     KP   = kpNow
     F107 = f10Now
+    AE   = AENow
 
+    ! If using the Young et al. composition model, recalculate the composition
+    ! fractions based on new Kp and F10.7
     if (.not.FixedComposition) then
        BEXP=(4.5E-2)*EXP(0.17*KP+0.01*F107)
        AHE0=6.8E-3
@@ -222,9 +267,15 @@ module ModRamIndices
             case("HeliumP1")
               species(i)%s_comp = 2.*GEXP/(4.+BEXP+2.*GEXP)
             case("OxygenP1")
-              species(i)%s_comp = BEXP/(4.+BEXP+2.*GEXP)
-            !case default
-            !  s_comp(i) = 1.0
+              Operc = BEXP/(4.+BEXP+2.*GEXP)
+              ! Subtract nitrogen percent from oxygen percent
+              species(i)%s_comp = (1-OfracN)*Operc
+            case("Nitrogen")
+              Operc = BEXP/(4.+BEXP+2.*GEXP)
+              ! Take a percent of the oxygen composition for nitrogen
+              species(i)%s_comp = OfracN*Operc
+            case default
+              species(i)%s_comp = 1.0
           end select
        enddo
     endif

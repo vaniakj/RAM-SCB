@@ -4,8 +4,7 @@
 !============================================================================
 
 MODULE ModRamDrift
-! Contains subroutines responsible for calculating flux changes due to
-! different drifts
+! Contains subroutines responsible for calculating flux changes due to different drifts
 
   use ModRamMain,      ONLY: Real8_
   use ModRamGrids,     ONLY: nR, nE, nPA
@@ -22,6 +21,7 @@ MODULE ModRamDrift
   contains
 !==============================================================================
   SUBROUTINE DRIFTEND
+    ! Deallocates arrays needed for drift equations
 
     implicit none
     
@@ -34,6 +34,7 @@ MODULE ModRamDrift
 !                       Calculate drift parameters
 !**************************************************************************
   SUBROUTINE DRIFTPARA(S)
+    ! Initializes the parameters needed for the drift equations
 
     use ModRamMain,      ONLY: DP
     use ModRamConst,     ONLY: PI
@@ -48,11 +49,13 @@ MODULE ModRamDrift
     real(DP) :: MUBOUN
     integer :: i, j, k, l
 
-    ALLOCATE(VR(nR), P1(nR), P2(nR,nE), EDOT(nR,nE), MUDOT(nR,nPA))
-    VR = 0.0; P1 = 0.0; P2 = 0.0; EDOT = 0.0; MUDOT = 0.0
-    ALLOCATE(CDriftR(nR,nT,nE,nPa), CDriftP(nR,nT,nE,nPa), &
-             CDriftE(nR,nT,nE,nPa), CDriftMu(nR,nT,nE,nPa))
-    CDriftR = 0.0; CDriftP = 0.0; CDriftE = 0.0; CDriftMu = 0.0
+    if (.not.ALLOCATED(VR)) then
+       ALLOCATE(VR(nR), P1(nR), P2(nR,nE), EDOT(nR,nE), MUDOT(nR,nPA))
+       VR = 0.0; P1 = 0.0; P2 = 0.0; EDOT = 0.0; MUDOT = 0.0
+       ALLOCATE(CDriftR(nR,nT,nE,nPa), CDriftP(nR,nT,nE,nPa), &
+                CDriftE(nR,nT,nE,nPa), CDriftMu(nR,nT,nE,nPa))
+       CDriftR = 0.0; CDriftP = 0.0; CDriftE = 0.0; CDriftMu = 0.0
+    endif
 
     ! Electric field offset in radians and particle charge
     PHIOFS=0*PI/12.
@@ -62,7 +65,6 @@ MODULE ModRamDrift
     DO I=1,NR
       DO J=1,NT
         VR(I)=DTs/MDR/(RLZ(I)+0.5*MDR)/2/DPHI
-        ! Kp dependent part of azimuthal drift 
         P1(I)=DTs/DPHI/2/MDR/RLZ(I)
       END DO
       DO K=1,NE
@@ -111,6 +113,8 @@ MODULE ModRamDrift
     sgn = 1; CR = 0.0; F = 0.0; FBND = 0.0
 
     DTDriftR(S) = 100000.0
+
+    ! ExB Radial Drift
     DO I=1,NR
        DO J=1,NT
           J0=J-1
@@ -122,9 +126,10 @@ MODULE ModRamDrift
        ENDDO
     ENDDO
 
-    DO K=2,NE
+    ! Gradient Curvature Radial Drift
+    DO K=1,NE
        P4=DTs*EKEV(K)*1000.0*(GREL(S,K)+1)/GREL(S,K)/DPHI/MDR/QS
-       DO L=2,NPA
+       DO L=1,NPA
           DO J=1,NT
              F(1:NR) = F2(S,:,J,K,L)
              J0=J-1
@@ -137,6 +142,7 @@ MODULE ModRamDrift
                 CGR3=CGR1+(FNIS(I+1,J,L)+FNIS(I,J,L)-2*FNHS(I+1,J,L) &
                      -2*FNHS(I,J,L))*CGR2/2./(BNES(I+1,J)+BNES(I,J))
                 CGR=CGR3/(FNHS(I,J,L)+FNHS(I+1,J,L))*P4/2./(BNES(I,J)+BNES(I+1,J))/(RLZ(I)+0.5*MDR)
+                ! ExB Radial Drift + Gradient Curvature Radial Drift
                 CDriftR(I,J,K,L)=CR(I,J)+CGR
                 if (outsideMGNP(i,j) == 0) then
                    ctemp = max(abs(CDriftR(I,J,K,L)),1E-10)
@@ -216,8 +222,8 @@ MODULE ModRamDrift
 
     DtDriftP(S) = 100000.0
     OME=7.3E-5 ! Earth's angular velocity [rad/s]
-    DO L=2,NPA
-       DO K=2,NE
+    DO L=1,NPA
+       DO K=1,NE
           DO I=2,NR
              F(:)=F2(S,I,:,K,L)
              DO J=2,NT
@@ -313,7 +319,7 @@ MODULE ModRamDrift
        DO I=2,NR
           DRD1=(EIP(I,J)*RLZ(I)-(VT(I,J2)-VT(I,J0))/2./DPHI)/BNES(I,J)
           DPD1=OME*RLZ(I)+((VT(I+1,J)-VT(I-1,J))/2/MDR-EIR(I,J))/BNES(I,J)
-          DO L=2,NPA
+          DO L=1,NPA
              GPA  = (1.-FNIS(I,J,L)/2./FNHS(I,J,L))/BNES(I,J)
              GPR1 = GPA*(BNES(I+1,J)-BNES(I-1,J))/2./MDR
              GPR2 = -FNIS(I,J,L)/FNHS(I,J,L)/RLZ(I)
@@ -397,7 +403,7 @@ MODULE ModRamDrift
 
     DtDriftMu(S) = 10000.0
     OME=7.3E-5
-    DO K=2,NE
+    DO K=1,NE
        DO J=1,NT
           J0=J-1
           IF (J.EQ.1) J0=NT-1

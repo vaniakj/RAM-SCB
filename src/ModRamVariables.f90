@@ -19,7 +19,7 @@ Module ModRamVariables
 
   ! ModRamPlasmasphere Variables
   real(DP), ALLOCATABLE :: flux_volume(:,:), uL(:,:), uT(:,:), tau(:,:), &
-                           gdLon(:,:), gdLat(:,:)
+                           smLon(:,:), smLat(:,:), xRAM(:,:,:), yRAM(:,:,:), zRAM(:,:,:)
 
 ! UNKNOWN VARIABLES
   real(DP), ALLOCATABLE :: XNE(:,:)
@@ -33,7 +33,8 @@ Module ModRamVariables
                            PPerE(:,:), PParE(:,:), PAllSum(:,:), PParSum(:,:), &
                            PPerT(:,:,:), PParT(:,:,:), dIdt(:,:,:), dIbndt(:,:,:), &
                            HDNS(:,:,:), FNHS(:,:,:), FNIS(:,:,:), BOUNHS(:,:,:), &
-                           BOUNIS(:,:,:), BNES(:,:), dBdt(:,:), dHdt(:,:,:)
+                           BOUNIS(:,:,:), BNES(:,:), dBdt(:,:), dHdt(:,:,:), &
+                           ODNS(:,:,:), NDNS(:,:,:)
   real(DP), ALLOCATABLE :: NAllSum(:,:), DensO(:,:), DensH(:,:), DensHe(:,:), HPAllSum(:,:), &
                            OPAllSum(:,:), HePAllSum(:,:), ePAllSum(:,:), HNAllSum(:,:), &
                            ONAllSum(:,:), HeNAllSum(:,:)
@@ -49,7 +50,9 @@ Module ModRamVariables
 ! ModRamWPI variables
   real(DP), ALLOCATABLE :: WALOS1(:,:), WALOS2(:,:), WALOS3(:,:), fpofc(:), &
                            NDVVJ(:,:,:,:), NDAAJ(:,:,:,:), ENOR(:), ECHOR(:), &
-                           BDAAR(:,:,:,:), CDAAR(:,:,:,:)
+                           BDAAR(:,:,:,:), CDAAR(:,:,:,:),&
+                           Daa_emic_h(:,:,:,:), Daa_emic_he(:,:,:,:), &
+                           EKEV_emic(:), fp2c_emic(:), Ihs_emic(:,:,:), Ihes_emic(:,:,:)
   integer, parameter :: NKpDiff = 5, &
                         NR_Dxx  = 20, &
                         NT_Dxx  = 25, &
@@ -67,10 +70,12 @@ Module ModRamVariables
 
 ! ModRamIndices variables
   character(len=4)   :: NameIndexSource = 'file'
-  integer :: nRawKp, nRawF107
+  integer :: nRawKp, nRawF107, nRawAE
   integer, parameter :: kptime(8) = (/1, 4, 7, 10, 13, 16, 19, 22/)
   real(DP) :: KP, F107
-  real(DP), allocatable :: timeKp(:),timeF107(:),rawKp(:),rawF107(:)
+  integer  :: AE
+  real(DP), allocatable :: timeKp(:),timeF107(:),timeAE(:), rawKp(:),rawF107(:)
+  integer,  allocatable :: rawAE(:)
 
 ! ModRamEField variables
   real(DP), ALLOCATABLE :: VT(:,:), EIR(:,:), EIP(:,:), VTOL(:,:), VTN(:,:)
@@ -99,6 +104,8 @@ Module ModRamVariables
                            LSCSC(:), LSWAE(:), XNN(:,:), XND(:,:), LNCN(:,:), LNCD(:,:), &
                            LECN(:,:), LECD(:,:), ENERN(:,:), ENERD(:,:), ATEW(:,:,:,:), &
                            ATAW(:,:,:,:), ATAC(:,:,:,:), ATEC(:,:,:,:), ATMC(:,:,:,:), &
-                           ATAW_emic(:,:,:,:), NECR(:,:), ESUM(:), NSUM(:)
+                           NECR(:,:), ESUM(:), NSUM(:),&
+                           ATAW_emic_h(:,:,:,:), ATAW_emic_he(:,:,:,:), &
+                           r_curvEq(:,:), zeta1Eq(:,:), zeta2Eq(:,:), FLC_coef(:,:,:,:,:)
 
 End Module ModRamVariables

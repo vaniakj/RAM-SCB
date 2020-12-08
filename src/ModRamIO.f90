@@ -24,6 +24,7 @@ module ModRamIO
 !===== BASE SUBROUTINES =====!
 !============================!
   subroutine write_prefix
+    ! Needed for SWMF coupling
 
     use ModRamParams, ONLY: IsComponent
 
@@ -110,7 +111,7 @@ module ModRamIO
     use ModRamParams,    ONLY: DoSaveRamSats, NameBoundMag
     use ModRamTiming,    ONLY: Dt_hI, DtRestart, DtWriteSat, TimeRamNow, &
                                TimeRamElapsed, DtW_Pressure, DtW_hI, DtW_Efield, &
-                               DtW_MAGxyz, DtLogFile, DtW_2DFlux
+                               DtW_MAGxyz, DtLogFile, DtW_2DFlux, DtW_Losses
     use ModRamGrids,     ONLY: NR, NT, nS
     use ModRamVariables, ONLY: PParT, PPerT, VT, ESUM,  NSUM,  LSDR,  LSCHA, & 
                                LSATM, LSCOE,  LSCSC,  LSWAE
@@ -196,6 +197,10 @@ module ModRamIO
 !       enddo
     endif
 
+    if (abs(mod(TimeIn,DtW_Losses)).le.1e-9) then
+       call writeLosses
+    endif
+
   end subroutine handle_output
 
 !===========================!
@@ -203,6 +208,7 @@ module ModRamIO
 !===========================!
 !==============================================================================
 subroutine read_geomlt_file(NameParticle)
+  ! Read a LANL geomlt file
 
   !!!! Module Variables
   use ModRamMain,      ONLY: DP
@@ -255,6 +261,7 @@ subroutine read_geomlt_file(NameParticle)
      call CON_stop(NameSub//': Invalid particle type '//'"'//NameParticle)
   endif
 
+  ! Handles geomlt files from LANL-GEO, PTM, Qin-Denton Kp Model, and Qin-Denton V*Bz model
   select case (boundary)
      case('LANL')
         write(NameFileIn, '(a,i4.4,i2.2,i2.2,3a)') trim(BoundaryPath)//'/', &
@@ -281,6 +288,7 @@ subroutine read_geomlt_file(NameParticle)
   FileIndexStart = 0
   FileIndexEnd   = 0
   FileIndex      = 0
+  ! Read file and get correct lines for desired dates
   Read_BoundaryFile_Dates: DO
      read(UNITTMP_,*,IOSTAT=iError) TimeBuffer(1)
      if ((trim(TimeBuffer(1)).ne.'#').and.(FileIndexStart.eq.0)) FileIndexStart = FileIndex
@@ -464,17 +472,25 @@ end subroutine read_geomlt_file
   end subroutine read_hI_file
 
 !==============================================================================
-  subroutine read_CHEX_file(CHEXFile,Vel,Sig)
+  subroutine read_CHEX_file(CHEXFile,species)
+    ! Read a charge exchange file to get the desired cross sections
+    ! Currently only gets cross sections for the charged species on Hydrogen,
+    ! Oxygen, and/or Nitrogen
+
     use ModRamMain, ONLY: DP, PathRAMIn
+    use ModRamSpecies, ONLY: SpeciesType
     use ModIoUnit,  ONLY: UNITTMP_
 
     implicit none
     character(len=*), intent(IN) :: CHEXFile
-    REAL(DP), allocatable, intent(INOUT) :: Vel(:), Sig(:)
+    type(SpeciesType), intent(INOUT) :: species
 
-    character(len=100) :: NameFile
+    REAL(DP), allocatable :: Sig(:)
+
+    character(len=100) :: NameFile, tempStr
+    character(len=2)   :: tempSpc 
     logical :: exists
-    integer :: i, nLines
+    integer :: i, j, nLines, nTypes, nH, nO, nN, nChar
 
     NameFile = trim(PathRAMIn)//CHEXFile
     INQUIRE(FILE=trim(NameFile), EXIST=exists)
@@ -483,22 +499,54 @@ end subroutine read_geomlt_file
     endif
 
     OPEN(UNITTMP_,FILE=trim(NameFile),STATUS='OLD')
-    READ(UNITTMP_,*) nLines
-    allocate(Vel(nLines),Sig(nLines))
-    do i = 1, nLines
-       READ(UNITTMP_,*) Vel(i), Sig(i)
+    READ(UNITTMP_,*) nLines, nTypes
+
+    ! Allocate CEX velocities
+    allocate(species%CEX_velocities(nLines))
+
+    ! Allocate CEX species (nH, nO, and/or nN)
+    tempStr = trim(species%CEX_species)
+    nH = -1; nO = -1; nN = -1
+    do i = 1, nTypes
+       nChar = index(tempStr, ' ')
+       if (nChar.eq.-1) nChar = len(trim(tempStr))
+       tempSpc = trim(tempStr(1:nChar))
+       if (tempSpc.eq.'nH') then
+          nH = i
+          allocate(species%CEX_nH(nLines))
+       elseif (tempSpc.eq.'nO') then
+          nO = i
+          allocate(species%CEX_nO(nLines))
+       elseif (tempSpc.eq.'nN') then
+          nN = i
+          allocate(species%CEX_nN(nLines))
+       endif
+       tempStr = trim(tempStr(nChar+1:len(tempStr)))
     enddo
+
+    allocate(Sig(nTypes))
+    do i = 1, nLines
+       READ(UNITTMP_,*) species%CEX_velocities(i), (Sig(j), j=1,nTypes)
+       if (allocated(species%CEX_nH)) species%CEX_nH(i) = Sig(nH)/10000._dp
+       if (allocated(species%CEX_nO)) species%CEX_nO(i) = Sig(nO)/10000._dp
+       if (allocated(species%CEX_nN)) species%CEX_nN(i) = Sig(nN)/10000._dp
+    enddo
+    species%CEX_velocities = species%CEX_velocities/100._dp
+    ! Need to remove the division but for now this is needed for the MFR data files -ME
+
     CLOSE(UNITTMP_)
+    deallocate(Sig)
 
   end subroutine read_CHEX_file
 
 !==============================================================================
   subroutine read_initial
+    ! Read the initialization file to get the starting flux
 
     use ModRamMain,      ONLY: DP
     use ModRamGrids,     ONLY: nR, nT, nE, nPA, RadiusMax, RadiusMin, nS
     use ModRamVariables, ONLY: F2, EkeV, Lz, MLT, Pa, PParT, PPerT, species
-    use ModRamParams,    ONLY: InitializationPath
+    use ModRamParams,    ONLY: InitializationPath, OfracN
 
     use ModRamGSL, ONLY: GSL_Interpolation_2D
     use ModRamNCDF, ONLY: ncdf_check
@@ -575,6 +623,12 @@ end subroutine read_geomlt_file
           iStatus = nf90_get_var(iFileID, iFluxHeVar, iF2(i,:,:,:,:))
        case('OxygenP1')
           iStatus = nf90_get_var(iFileID, iFluxOVar,  iF2(i,:,:,:,:))
+          iF2(i,:,:,:,:) = (1. - OfracN)*iF2(i,:,:,:,:)
+       case('Nitrogen')
+          ! If we want to initialize some nitrogen, we assume that a percentage
+          ! of the oxygen in the initialization file is actually nitrogen
+          iStatus = nf90_get_var(iFileID, iFluxOVar,  iF2(i,:,:,:,:))
+          iF2(i,:,:,:,:) = OfracN*iF2(i,:,:,:,:)
        case default
           iF2(i,:,:,:,:) = 0._dp
        end select
@@ -657,6 +711,7 @@ end subroutine read_geomlt_file
         call CON_stop('Changing pitch angle and energy resolution not currently supported')
        endif
     endif
+    F2(:,:,:,1,:) = F2(:,:,:,2,:)
 
     DEALLOCATE(iF2, iEkeV, iMLT, iLz, iPaVar)
     DEALLOCATE(iFNHS, iBOUNHS, iFNIS, iBOUNIS, iBNES, iHDNS, iEIR, iEIP, &
@@ -669,10 +724,12 @@ end subroutine read_geomlt_file
 !============================!
 !==========================================================================
   subroutine write2DFlux
+    ! Write the 2D flux (F2/FFACTOR/FNHS)
+
     use ModRamMain,  ONLY: DP, PathRamOut
     use ModRamTiming, ONLY: TimeRamNow
     use ModRamGrids, ONLY: nS, nR, nT, nE, nPa
-    use ModRamVariables, ONLY: F2, FFactor, FNHS, EkeV, Lz, Pa, MLT, species
+    use ModRamVariables, ONLY: F2, FFactor, FNHS, EkeV, Lz, Pa, MLT, species, nECR
 
     use ModRamNCDF
     use netcdf
@@ -684,7 +741,7 @@ end subroutine read_geomlt_file
 
     character(len=200) :: NameFile
     integer :: i, j, k, l, S
-    integer :: nRDim, nTDim, nEDim, nPaDim, iGridVar, iFluxVar, iFileID, iStatus
+    integer :: nRDim, nTDim, nEDim, nPaDim, iGridVar, iFluxVar, iFileID, iStatus, iNECRVar
     real(DP), allocatable :: F(:,:,:,:)
 
     ! OPEN FILE
@@ -734,13 +791,180 @@ end subroutine read_geomlt_file
     enddo
     deallocate(F)
 
+    !! Plasmaspheric Densities
+    iStatus = nf90_def_var(iFileID, 'NECR', nf90_double, (/nRDim,nTDim/), iNECRVar)
+    iStatus = nf90_put_var(iFileID, iNECRVar, NECR(1:nR,1:nT))
+
     iStatus = nf90_close(iFileID)
     call ncdf_check(iStatus, NameSub)
 
   endsubroutine write2DFlux
 
+!==================================================================================================
+  subroutine writeLosses
+    ! Write losses from RAM
+
+    use ModRamMain,      ONLY: DP, PathRamOut
+    use ModRamTiming,    ONLY: TimeRamNow, TimeRamElapsed
+    use ModRamGrids,     ONLY: nS, nR, nT, nE, nPa
+    use ModRamVariables, ONLY: F2, FFactor, FNHS, EkeV, WE, WMU, RFactor, XNN, XND, ENERN, &
+                               ENERD, LNCN, LNCD, LSDR, LSCHA, LSATM, LSCOE, LSCSC, LSWAE, &
+                               LECD, LECN, uPa, MLT
+
+    use ModRamNCDF
+    use netcdf
+
+    implicit none
+
+    character(len=*), parameter :: NameSub='write2DFlux'
+    integer, parameter :: iDeflate = 2, yDeflate = 1
+
+    character(len=200), save :: NameFile
+    logical :: firstCall = .true.
+    integer :: iRecord = 1
+    integer :: i, j, k, l, S
+    integer :: iFileID, inSDim, iTimeDim, iTimeVar, iLSDRVar, iLSCHAVar, iLSATMVar, &
+               iLSCOEVar, iLSCSCVar, iLSWAEVar, iNSumVar, iESumVar, iStatus
+    real(DP) :: XNNO, XNDO, ENO, EDO, WEIGHT
+    real(DP), allocatable :: ESUM(:), NSUM(:)
+
+    allocate(ESUM(nS), NSUM(nS))
+
+    ! Compute losses
+    DO S=1,nS
+      DO I=2,NR
+        XNNO=XNN(S,I)
+        XNDO=XND(S,I)
+        XNN(S,I)=0.
+        XND(S,I)=0.
+        ENO=ENERN(S,I)
+        EDO=ENERD(S,I)
+        ENERN(S,I)=0.
+        ENERD(S,I)=0.
+        DO K=2,NE
+          DO L=1,NPA
+            DO J=1,NT-1
+              IF (L.LT.UPA(I)) THEN
+                WEIGHT=F2(S,I,J,K,L)*WE(K)*WMU(L)/FFACTOR(S,I,K,L)/FNHS(I,J,L)
+                IF (MLT(J).LE.6.OR.MLT(J).GE.18.) THEN
+                  XNN(S,I)=XNN(S,I)+WEIGHT
+                  ENERN(S,I)=ENERN(S,I)+EKEV(K)*WEIGHT
+                ELSE
+                  XND(S,I)=XND(S,I)+WEIGHT
+                  ENERD(S,I)=ENERD(S,I)+EKEV(K)*WEIGHT
+                ENDIF
+              ENDIF
+            END DO
+          END DO
+        END DO
+        LNCN(S,I)=XNNO-XNN(S,I)  ! Nightside particle loss
+        LECN(S,I)=ENO-ENERN(S,I) ! Nightside energy loss
+        LNCD(S,I)=XNDO-XND(S,I)  ! Dayside particle loss
+        LECD(S,I)=EDO-ENERD(S,I) ! Dayside energy loss
+      END DO
+
+      ESUM(S)=0.
+      NSUM(S)=0.
+      DO I=2,NR
+        ESUM(S)=ESUM(S)+(ENERN(S,I)+ENERD(S,I))*RFACTOR
+        NSUM(S)=NSUM(S)+(XNN(S,I)+XND(S,I))*RFACTOR
+      END DO
+      LSDR(S)  = LSDR(S)*RFACTOR*100/ESUM(S)  ! Drift Loss
+      LSCHA(S) = LSCHA(S)*RFACTOR*100/ESUM(S) ! Charge Exchange Loss
+      LSATM(S) = LSATM(S)*RFACTOR*100/ESUM(S) ! Atmospheric Loss
+      LSCOE(S) = LSCOE(S)*RFACTOR*100/ESUM(S) ! Coulomb Energy Loss
+      LSCSC(S) = LSCSC(S)*RFACTOR*100/ESUM(S) ! Coulomb Pitch Angle Scattering
+      LSWAE(S) = LSWAE(S)*RFACTOR*100/ESUM(S) ! WPI Loss
+      ESUM(S) = ESUM(S)/RFACTOR
+      NSUM(S) = NSUM(S)/RFACTOR
+    enddo
+
+    if (firstCall) then ! Create ram_loss file
+       NameFile = RamFileName(PathRamOut//'/ram_losses','nc',TimeRamNow)
+       iStatus = nf90_create(trim(NameFile), nf90_HDF5, iFileID)
+       call ncdf_check(iStatus, NameSub)
+       call write_ncdf_globatts(iFileID)
+
+       ! Set Dimensions
+       iStatus = nf90_def_dim(iFileID, 'nS', nS, inSDim)
+       iStatus = nf90_def_dim(iFileID, 'time', nf90_unlimited, iTimeDim)
+
+       ! Set Time Variables
+       iStatus = nf90_def_var(iFileID, 'Time', nf90_float, iTimeDim, iTimeVar)
+       iStatus = nf90_put_att(iFileID, iTimeVar, 'title', &
+            'Time in seconds from start of simulation')
+       iStatus = nf90_put_att(iFileID, iTimeVar, 'units', 'seconds')
+
+       ! Set Loss Variables
+       !! LSDR
+       iStatus = nf90_def_var(iFileID, 'LSDR', nf90_float, (/inSDim, iTimeDim/), iLSDRVar)
+       iStatus = nf90_put_att(iFileID, iLSDRVar, 'title', 'Loss due to drifts')
+       !! LSCHA
+       iStatus = nf90_def_var(iFileID, 'LSCHA', nf90_float, (/inSDim, iTimeDim/), iLSCHAVar)
+       iStatus = nf90_put_att(iFileID, iLSCHAVar, 'title', 'Loss due to charge exchange')
+       !! LSATM
+       iStatus = nf90_def_var(iFileID, 'LSATM', nf90_float, (/inSDim, iTimeDim/), iLSATMVar)
+       iStatus = nf90_put_att(iFileID, iLSATMVar, 'title', 'Loss due to atmosphere')
+       !! LSCOE
+       iStatus = nf90_def_var(iFileID, 'LSCOE', nf90_float, (/inSDim, iTimeDim/), iLSCOEVar)
+       iStatus = nf90_put_att(iFileID, iLSCOEVar, 'title', 'Loss due to coulomb energy')
+       !! LSCSC
+       iStatus = nf90_def_var(iFileID, 'LSCSC', nf90_float, (/inSDim, iTimeDim/), iLSCSCVar)
+       iStatus = nf90_put_att(iFileID, iLSCSCVar, 'title', 'Loss due to coulomb pitch angle')
+       !! LSWAE
+       iStatus = nf90_def_var(iFileID, 'LSWAE', nf90_float, (/inSDim, iTimeDim/), iLSWAEVar)
+       iStatus = nf90_put_att(iFileID, iLSWAEVar, 'title', 'Loss due to waves')
+
+       ! Set Sum Variables
+       !! NSUM
+       iStatus = nf90_def_var(iFileID, 'NSUM', nf90_float, (/inSDim, iTimeDim/), iNSumVar)
+       iStatus = nf90_put_att(iFileID, iNSumVar, 'title', 'Particle Number Sum')
+       !! ESUM
+       iStatus = nf90_def_var(iFileID, 'ESUM', nf90_float, (/inSDim, iTimeDim/), iESumVar)
+       iStatus = nf90_put_att(iFileID, iESumVar, 'title', 'Particle Energy Sum')
+
+       firstCall = .false.
+    else ! open ram_loss file
+       iStatus = nf90_open(trim(NameFile), nf90_write, iFileID)
+
+       iStatus = nf90_inq_varid(iFileID, 'Time', iTimeVar)
+       iStatus = nf90_inq_varid(iFileID, 'LSDR', iLSDRVar)
+       iStatus = nf90_inq_varid(iFileID, 'LSCHA', iLSCHAVar)
+       iStatus = nf90_inq_varid(iFileID, 'LSATM', iLSATMVar)
+       iStatus = nf90_inq_varid(iFileID, 'LSCOE', iLSCOEVar)
+       iStatus = nf90_inq_varid(iFileID, 'LSCSC', iLSCSCVar)
+       iStatus = nf90_inq_varid(iFileID, 'LSWAE', iLSWAEVar)
+       iStatus = nf90_inq_varid(iFileID, 'NSUM', iNSumVar)
+       iStatus = nf90_inq_varid(iFileID, 'ESUM', iESumVar)
+    endif
+
+    iStatus = nf90_put_var(iFileID, iTimeVar, TimeRamElapsed, (/iRecord/))
+    iStatus = nf90_put_var(iFileID, iLSDRVar,  LSDR(:),  (/1, iRecord/))
+    iStatus = nf90_put_var(iFileID, iLSCHAVar, LSCHA(:), (/1, iRecord/))
+    iStatus = nf90_put_var(iFileID, iLSATMVar, LSATM(:), (/1, iRecord/))
+    iStatus = nf90_put_var(iFileID, iLSCOEVar, LSCOE(:), (/1, iRecord/))
+    iStatus = nf90_put_var(iFileID, iLSCSCVar, LSCSC(:), (/1, iRecord/))
+    iStatus = nf90_put_var(iFileID, iLSWAEVar, LSWAE(:), (/1, iRecord/))
+    iStatus = nf90_put_var(iFileID, iNSumVar,  NSum(:),  (/1, iRecord/))
+    iStatus = nf90_put_var(iFileID, iESumVar,  ESum(:),  (/1, iRecord/))
+
+    iStatus = nf90_close(iFileID)
+    call ncdf_check(iStatus, NameSub)
+
+    iRecord = iRecord + 1
+    LSDR = 0._dp
+    LSCHA = 0._dp
+    LSATM = 0._dp
+    LSCOE = 0._dp
+    LSCSC = 0._dp
+    LSWAE = 0._dp
+
+    DEALLOCATE(ESUM,NSUM)
+
+  end subroutine writeLosses
 !==========================================================================
   subroutine ram_epot_write
+    ! Write the 2D RAM potential used in the RAM Drift calculations
 
     use ModRamMain, ONLY: DP, PathRamOut
     use ModRamTiming, ONLY: TimeRamNow, TimeRamElapsed
@@ -791,7 +1015,7 @@ end subroutine read_geomlt_file
                                LECD, LECN, outsideMGNP, NECR, IAPO, RZ, &
                                IR1, IP1, PHI, MU, RFACTOR, ESUM, NSUM
     use ModRamTiming,    ONLY: TimeRamNow,TimeRamElapsed
-    use ModRamParams,    ONLY: DoUseWPI, DoUsePlane_SCB
+    use ModRamParams,    ONLY: DoUseWPI, DoUsePlasmasphere
     use ModRamFunctions
     use ModRamConst
     use ModIOUnit, ONLY: UNITTMP_, io_unit_new
@@ -901,7 +1125,7 @@ end subroutine read_geomlt_file
 32  FORMAT(' EKEV/PA, Date=',a,' L=',F6.2,' Kp=',F6.2,' MLT=',F4.1)
 
 !.......Write the plasmaspheric electron density [cm-3] (.in)
-	  if(DoUsePlane_SCB)then
+	  if(DoUsePlasmasphere)then
 	   NameFileOut=trim(PathRamOut)//RamFileName('plasmne','in',TimeRamNow)
 	   OPEN(UNIT=UNITTMP_,FILE=NameFileOut,STATUS='UNKNOWN')
            WRITE(UNITTMP_,96) T/3600,KP,IAPO(2),RZ(3),StringDate
@@ -927,7 +1151,8 @@ end subroutine read_geomlt_file
 
 !===========================================================================
   subroutine ram_write_pressure
-! Creates RAM pressure files (output_ram/pressure_d{Date and Time}.dat)
+    ! Creates RAM pressure files (output_ram/pressure_d{Date and Time}.dat)
+
     !!!! Module Variables
     use ModRamMain,      ONLY: PathRamOut
     use ModRamTiming,    ONLY: TimeRamNow, TimeRamStart, TimeRamElapsed
@@ -980,6 +1205,7 @@ end subroutine read_geomlt_file
 
 !==============================================================================
 subroutine ram_write_hI
+  ! Write the h and I integral results used in the RAM Drift calculations
 
   use ModRamMain,      ONLY: PathScbOut
   use ModRamGrids,     ONLY: nR, nT, nPA
@@ -995,7 +1221,7 @@ subroutine ram_write_hI
   character(len=214) :: filenamehI
 
   if (abs(TimeRamElapsed).le.1e-9) then
-     filenamehI = trim(PathScbOut)//'/hI_output_dipole.dat'
+     filenamehI = trim(PathScbOut)//'/hI_output_initial.dat'
   else
      filenamehI=trim(PathScbOut)//RamFileName('/hI_output', 'dat', TimeRamNow)
   endif
@@ -1017,7 +1243,8 @@ end subroutine ram_write_hI
 
 !==============================================================================
 subroutine write_dsbnd(S)
-! Creates boundary flux files (output_ram/Dsbnd/ds_{Species}_d{Date and Time}.dat)
+  ! Creates boundary flux files (output_ram/Dsbnd/ds_{Species}_d{Date and Time}.dat)
+
   !!!! Module Variables
   use ModRamMain,      ONLY: PathRamOut
   use ModRamTiming,    ONLY: TimeRamNow, TimeRamElapsed

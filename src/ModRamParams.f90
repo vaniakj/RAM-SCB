@@ -38,10 +38,6 @@ module ModRamParams
   logical :: IsRestart = .false., DoSaveFinalRestart=.true.
   logical :: HardRestart = .false. ! Whether to recompute SCB outer boundary
  
-  ! Use plasmasphere density from Rasmussen model, coupled to MSIS and IRI
-  ! For plane_scb options, see ModRamPl_Ne.f90
-  logical :: DoUsePlane_SCB = .false.
- 
   ! Include SCB?  Default is yes!
   logical :: DoUseScb = .true.
  
@@ -57,6 +53,13 @@ module ModRamParams
   ! Do use Kp-dependent diffusion coefficients?  Default is no!
   logical :: DoUseKpDiff = .false.
  
+  ! Do use EMIC wave-particle diffusion?  Default is no!
+  logical :: DoUseEMIC = .false.
+
+  ! Do use FLC scattering diffusion?  Default is no!
+  logical :: DoUseFLC = .false.
+  logical :: DoWriteFLCDiffCoeff = .false.
+
   ! Flags for initialization of energy grid and initial conditions
   logical, public :: DoInitOnly = .false.
   logical :: DoUseVAPini = .false.
@@ -86,6 +89,9 @@ module ModRamParams
   logical :: BoundaryFiles = .true.
   real(DP) :: ElectronFluxCap = 1e10
   real(DP) :: ProtonFluxCap = 1e8
+
+  ! Sets a fraction of oxygen to turn into nitrogen
+  real(DP) :: OfracN = 0.
  
   logical :: DoVarDt = .true.                        ! Use variable timestep.
  
@@ -94,7 +100,15 @@ module ModRamParams
   character(len=200) :: StrRamDescription='None'     ! Descript. of simulation
  
   logical :: IsStarttimeSet=.false.  ! True if #STARTTIME used in standalone.
- 
+
+  ! Plasmasphere Model Parameters 
+  logical :: DoUsePlasmasphere = .false.
+  character(len=100) :: PlasmasphereModel = 'Carpenter' ! Name of plasmasphere model to use
+  character(len=100) :: TauCalculation = 'Analytic'     ! Name of method for calculating plasmasphere refilling time
+
+  ! Coulomb Collision Parameters
+  logical :: DoUseCoulomb = .false.
+
   character(len=4) :: NameBoundMag = 'DIPL'
   character(len=6) :: InnerMag, OuterMag
  
