@@ -53,7 +53,7 @@ my %libs;
 
 # Handle RAM-SCB installation arguments.
 foreach(@Arguments){
-    if(/^-scheme/) {$libs{'gsl'} = "/packages2/.packages2/x86_64-pc-linux-gnu-rhel6/gsl/2.3";
+    if(/^-scheme/) {$libs{'gsl'} = "/packages2.5/x86_64-pc-linux-gnu-rhel7/gsl/2.6";
                     $libs{'netcdf'} = "/projects/lanl/Carrington/netcdf";
                     $DoSetLibs = 1;
                     next;

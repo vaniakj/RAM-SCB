@@ -16,8 +16,9 @@ module ModRamIndices
     ! Read RAMIndices file
 
     use ModRamMain, ONLY: Real8_
-    use ModRamVariables, ONLY: nRawKp, nRawF107, nRawAE, kptime, &
-                               timeKp, timeF107, timeAE, rawKp, rawF107, rawAE
+    use ModRamVariables, ONLY: nRawKp, nRawF107, nRawAE, nRawOH, kptime, &
+                               timeKp, timeF107, timeAE, rawKp, rawF107, &
+                               rawAE, timeOH, rawOH, rawHeH
     use ModRamParams,   ONLY: DoUseEMIC
     use ModTimeConvert, ONLY: TimeType, time_int_to_real
     use ModIoUnit,      ONLY: UNITTMP_
@@ -163,6 +164,28 @@ module ModRamIndices
        close(UNITTMP_)
     end If
 
+  !!! VJ: Read ion composition ratios from file
+       fname = 'ratio_L5_interp_5m.dat'
+       open(UNITTMP_, FILE=fname, status = 'UNKNOWN', action='READ')
+        ij = 0
+       ierr = 0
+       do while (ierr==0)
+          read(UNITTMP_, *, iostat=ierr)header
+          ij = ij + 1
+       end do
+       iLines = ij - 1
+       rewind(UNITTMP_)
+       
+       nRawOH = iLines
+       allocate(timeOH(nRawOH), rawOH(nRawOH), rawHeH(nRawOH))
+       do ij=1, iLines
+          read(UNITTMP_, '(i4,i2,i2,1x,i2,1x,i2,1x,2f6.3)') &
+               cyy, cmm, cdd, chh, cmin, rawOH(ij), rawHeH(ij)
+          call time_int_to_real((/cyy,cmm,cdd,chh,cmin,0,0/), timeOH(ij))
+       end do
+       close(UNITTMP_)
+  !!! end VJ addition
+
   end subroutine read_index_file
 
   !===========================================================================
@@ -197,7 +220,8 @@ module ModRamIndices
     use ModRamGrids,     ONLY: nS
     use ModRamParams,    ONLY: FixedComposition, OfracN
     use ModRamVariables, ONLY: nRawKp, nRawF107, nRawAE, Kp, F107, AE, timeKp, &
-                               timeF107, timeAE, rawKp, rawF107, rawAE, species
+                               timeF107, timeAE, rawKp, rawF107, rawAE, &
+                               species, timeOH, nRawOH, rawOH, rawHeH
     use ModRamParams,    ONLY: DoUseEMIC
     use ModRamMain, ONLY: Real8_
     
@@ -208,7 +232,8 @@ module ModRamIndices
     integer,           intent(out):: AENow
     
     integer :: iTime, i
-    real(kind=Real8_) :: dTime, dateNow, BEXP, AHE0, AHE1, GEXP, Operc
+    real(kind=Real8_) :: dTime, dateNow, BEXP, AHE0, AHE1, GEXP, Operc, &
+                         OHnow, HeHnow
 
     !------------------------------------------------------------------------
     ! NOTE: AS MORE SOURCES ARE ADDED, USE CASE STATEMENTS TO 
@@ -252,14 +277,27 @@ module ModRamIndices
     F107 = f10Now
     AE   = AENow
 
+  ! VJ: Find points in timeOH about current time like above-> OHnow, HeHnow
+  ! define He & H ratios to use below:
+       iTime = 1
+       do while ( (iTime .lt. nRawOH) .and. (timeOH(iTime) .le. timeNow))
+          iTime = iTime + 1
+       end do
+       ! Interpolate ion ratios to current time 
+       dTime = (timeNow - timeOH(iTime-1))/(timeOH(iTime)-timeOH(iTime-1))
+       OHnow = dTime*(rawOH(iTime)-rawOH(iTime-1))+rawOH(iTime-1)
+       HeHnow = dTime*(rawHeH(iTime)-rawHeH(iTime-1))+rawHeH(iTime-1)
+ 
     ! If using the Young et al. composition model, recalculate the composition
     ! fractions based on new Kp and F10.7
-    if (.not.FixedComposition) then
-       BEXP=(4.5E-2)*EXP(0.17*KP+0.01*F107)
+    if (.not.FixedComposition) then              
+       BEXP=(4.5E-2)*EXP(0.17*KP+0.01*F107)       ! Young et al. 
+!VJ       BEXP=OHnow              ! VJ: use new RBSP ratios
        AHE0=6.8E-3
        AHE1=0.084
        GEXP=0.011*EXP(0.24*KP+0.011*F107)
-       GEXP=BEXP*(AHE0/GEXP+AHE1)
+       GEXP=BEXP*(AHE0/GEXP+AHE1)       ! Young et al. 
+!VJ       GEXP=HeHnow              ! VJ: use new RBSP ratios
        do i = 1, nS
           select case(species(i)%s_name)
             case("Hydrogen")

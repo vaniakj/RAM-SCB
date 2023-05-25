@@ -70,11 +70,12 @@ Module ModRamVariables
 
 ! ModRamIndices variables
   character(len=4)   :: NameIndexSource = 'file'
-  integer :: nRawKp, nRawF107, nRawAE
+  integer :: nRawKp, nRawF107, nRawAE, nRawOH
   integer, parameter :: kptime(8) = (/1, 4, 7, 10, 13, 16, 19, 22/)
   real(DP) :: KP, F107
   integer  :: AE
-  real(DP), allocatable :: timeKp(:),timeF107(:),timeAE(:), rawKp(:),rawF107(:)
+  real(DP), allocatable :: timeKp(:), timeF107(:), timeAE(:), rawKp(:), rawF107(:), &
+                           timeOH(:), rawOH(:), rawHeH(:)
   integer,  allocatable :: rawAE(:)
 
 ! ModRamEField variables

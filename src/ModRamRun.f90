@@ -300,9 +300,10 @@ MODULE ModRamRun
     INTEGER :: KHI(5)
     character(len=2)  :: ST2
     character(len=214) :: NameFileOut
-    character(len=2), dimension(4) :: speciesString = (/'_h','_o','he','_e'/)
-    DATA khi/6, 10, 25, 30, 35/ ! ELB=0.1 keV -> 0.4,1,39,129,325 keV
-!    DATA khi/2, 19, 28, 32, 35/ ! ELB=0.1 keV -> 0.1,10,100,200,427 keV
+    character(len=80) HEADER
+     character(len=2), dimension(4) :: speciesString = (/'_h','_o','he','_e'/)
+!old    DATA khi/6, 10, 25, 30, 35/ ! ELB=0.1 keV -> 0.4,1,39,129,325 keV
+    DATA khi/2, 19, 28, 32, 35/ ! ELB=0.1 keV -> 0.1,10,100,200,427 keV
 
     ALLOCATE(DWAVE(NPA),CMRA(SLEN),BWAVE(NR,NT),AVDAA(NPA),TAVDAA(NPA), &
              DAA(NE,NPA,Slen),DUMP(ENG,NCF),XFR(NR,NT),XFRe(NCF),ALENOR(ENG), &
@@ -321,6 +322,24 @@ MODULE ModRamRun
     RFAC=4*pi/cv
     gausgam=1.E-5
     khi(5)=NE
+
+	IF(MOD(INT(T),3600).EQ.0.) THEN
+    NameFileOut=trim(PathRamOut)//RamFileName('ram'//st2,'wans',TimeRamNow)
+	OPEN(UNIT=7,FILE=trim(NameFileOut),STATUS='UNKNOWN')
+	 WRITE(7,56) T/3600,KP 				! total
+    NameFileOut=trim(PathRamOut)//RamFileName('ram'//st2,'lans',TimeRamNow)
+	OPEN(UNIT=8,FILE=trim(NameFileOut),STATUS='UNKNOWN')
+	 WRITE(8,56) T/3600,KP 				! low: 0.15-9 keV
+    NameFileOut=trim(PathRamOut)//RamFileName('ram'//st2,'mans',TimeRamNow)
+	OPEN(UNIT=12,FILE=trim(NameFileOut),STATUS='UNKNOWN')
+	 WRITE(12,56) T/3600,KP 			! medium: 12-80 keV
+    NameFileOut=trim(PathRamOut)//RamFileName('ram'//st2,'hans',TimeRamNow)
+	OPEN(UNIT=13,FILE=trim(NameFileOut),STATUS='UNKNOWN')
+	 WRITE(13,56) T/3600,KP 			! high: 100-208 keV
+56	 FORMAT(2HT=,F8.3,2X,3HKp=,F3.1,/,2X, &
+     	 'L   PHI     ANIS   EDEN[keV/cm3]   RNHT[1/cm3]  PPER[keV/cm3]', &
+     	 '  PPAR[keV/cm3]')
+	ENDIF
 
     ! calculate ring current parameters
     DO I=2,NR
@@ -371,6 +390,14 @@ MODULE ModRamRun
           PPAR=2*RFAC*PPAR
           PPER=RFAC*PPER
           ! write anisotropy, kT parallel, RC density
+	    IF(MOD(INT(T),3600).EQ.0.) THEN
+	     if (iwa.eq.2) WRITE(8,551) &
+     	      LZ(I),PHI(J),ANIS,EDEN,RNHT,PPER,PPAR
+	     if (iwa.eq.3) WRITE(12,551) &
+     	      LZ(I),PHI(J),ANIS,EDEN,RNHT,PPER,PPAR
+	     if (iwa.eq.4) WRITE(13,551) &
+     	      LZ(I),PHI(J),ANIS,EDEN,RNHT,PPER,PPAR
+	    ENDIF
           klo = khi(iwa)+1
           EDENT=EDENT+EDEN
           PPERT(S,I,J)=PPERT(S,I,J)+PPER
@@ -379,6 +406,8 @@ MODULE ModRamRun
         enddo
         ANIST=PPERT(S,I,J)/PPART(S,I,J)-1.
         EPART=PPART(S,I,J)/RNHTT
+	IF(MOD(INT(T),3600).EQ.0.) WRITE(7,551) LZ(I),PHI(J), &
+           ANIST,EDENT,RNHTT,PPERT(S,I,J),PPART(S,I,J)
 !          if (T.gt.0.and.PPERT(S,I,J).lt.0) then
           if (abs(PPERT(S,I,J))>huge(PPERT(S,I,J))) then
               write(*,*) 'in ANISCH: S,i,j, PPERT= ', S,i,j, PPERT(S,I,J)
@@ -386,6 +415,11 @@ MODULE ModRamRun
           endif
       ENDDO
     ENDDO
+	CLOSE(7)
+	CLOSE(8)
+	CLOSE(12)
+	CLOSE(13)
+551	FORMAT(F5.2,F10.6,10(1PE12.3))
 
     IF (MOD(INT(T),INT(Dt_bc)).EQ.0.and.DoUseWPI.and.species(S)%s_name.eq.'Electron') THEN
          ! zero PA diffusion coefficients

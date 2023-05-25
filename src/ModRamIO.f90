@@ -189,12 +189,17 @@ module ModRamIO
     if (abs(mod(TimeIn,DtRestart)).le.1e-9) call write_restart()
 
     ! Write hourly file
-    if (abs(mod(TimeIn,DtW_2DFlux)).le.1e-9) then
-       call write2DFlux            ! ME netcdf output
-!    if (abs(mod(TimeIn,3600.0)).le.1e-9) then
-!       do iS = 1, nS
-!         call ram_hour_write(iS)   ! VJ ascii output
-!       enddo
+!    if (abs(mod(TimeIn,DtW_2DFlux)).le.1e-9) then
+!       call write2DFlux            ! ME netcdf output
+    if (abs(mod(TimeIn,3600.0)).le.1e-9) then
+       do iS = 1, nS
+         call ram_hour_write(iS)   ! VJ ascii output
+       enddo
+    endif
+    if (abs(mod(TimeIn,300.0)).le.1e-9) then
+       do iS = 1, nS
+         call write_dsbnd(iS)   ! VJ ascii output
+       enddo
     endif
 
     if (abs(mod(TimeIn,DtW_Losses)).le.1e-9) then
@@ -1030,7 +1035,7 @@ end subroutine read_geomlt_file
     character(len=23) :: StringDate
     character(len=2)  :: ST2
     character(len=214) :: ST4, NameFileOut
-    character(len=2), dimension(4) :: speciesString = (/'_h','_o','he','_e'/)
+    character(len=2), dimension(4) :: speciesString = (/'_h','_o','he','_e'/) ! as in PARAM.in
 
     ALLOCATE(F(NR,NT,NE,NPA),FZERO(NR,NT,NE),ENO(NR),EDO(NR),AVEFL(NR,NT,NE),BARFL(NE))
     ALLOCATE(XNNO(NR),XNDO(NR))
@@ -1098,15 +1103,15 @@ end subroutine read_geomlt_file
 
     ! Write the trapped equatorial flux [1/s/cm2/sr/keV]
 !      IF (MOD(INT(T),2*3600).EQ.0.) THEN
-        IF (S.eq.1.or.S.eq.4) THEN
+!        IF (S.eq.1.or.S.eq.4) THEN
 	  if (NT.EQ.49) JW=2
 	  if (NT.EQ.25) JW=1
           IW=1
-        ELSE
-	  if (NT.EQ.49) JW=6
-	  if (NT.EQ.25) JW=3
-          IW=4
-        ENDIF
+!        ELSE
+!	  if (NT.EQ.49) JW=6
+!	  if (NT.EQ.25) JW=3
+!         IW=4
+!       ENDIF
 !      ENDIF
     NameFileOut=trim(PathRamOut)//RamFileName('ram'//st2,'flx',TimeRamNow)
     open(unit=UnitTMP_, file=trim(NameFileOut), status='UNKNOWN')
@@ -1123,6 +1128,52 @@ end subroutine read_geomlt_file
 30  FORMAT(F7.2,72(1PE11.3))
 31  FORMAT(F6.2,1X,F6.2,2X,F6.2,1X,F7.2,1X,F7.2,1X,1PE11.3)
 32  FORMAT(' EKEV/PA, Date=',a,' L=',F6.2,' Kp=',F6.2,' MLT=',F4.1)
+
+    ! Write the total precipitating flux [1/cm2/s]
+!    IF (DoUseWPI) THEN
+    NameFileOut=trim(PathRamOut)//RamFileName('ram'//st2,'tpp',TimeRamNow)
+    open(unit=UnitTMP_, file=trim(NameFileOut), status='UNKNOWN')
+      WRITE(UNITTMP_,71) T/3600,KP
+      DO I=2,NR
+        DO J=1,NT
+          PRECFL=0.
+          DO K=2,NE ! 0.15 - 430 keV
+            AVEFL(I,J,K)=0.
+            DO L=UPA(I),NPA
+              AVEFL(I,J,K)=AVEFL(I,J,K)+F(I,J,K,L)*WMU(L)
+            ENDDO
+            AVEFL(I,J,K)=AVEFL(I,J,K)/(MU(NPA)-MU(UPA(I)))
+            PRECFL=PRECFL+AVEFL(I,J,K)*PI*WE(K)
+          ENDDO
+          WRITE(UNITTMP_,70) LZ(I),PHI(J),PRECFL
+        END DO
+      END DO
+      close(UNITTMP_)
+!    ENDIF
+71   FORMAT(2X,3HT =,F8.0,2X,4HKp =,F6.2,2X, &
+     ' Total Precip Flux [1/cm2/s]')
+
+    ! Write the RAM flux [1/s/cm2/sr/keV] at given pitch angle
+!    IF (DoUseWPI) THEN
+    NameFileOut=trim(PathRamOut)//RamFileName('out'//st2,'dat',TimeRamNow)
+    open(unit=20, file=trim(NameFileOut), status='UNKNOWN')
+    NameFileOut=trim(PathRamOut)//RamFileName('outm'//st2,'dat',TimeRamNow)
+    open(unit=30, file=trim(NameFileOut), status='UNKNOWN')
+    NameFileOut=trim(PathRamOut)//RamFileName('outp'//st2,'dat',TimeRamNow)
+    open(unit=40, file=trim(NameFileOut), status='UNKNOWN')
+      DO I=1,NR
+        DO 822 J=1,NT-1
+        if (outsideMGNP(I,J) == 1) F(I,J,:,:) = 1e-31
+          DO 822 K=2,NE
+            WRITE(20,31) T/3600.,LZ(I),KP,MLT(J),EKEV(K),F(I,J,K,2)
+            WRITE(30,31) T/3600.,LZ(I),KP,MLT(J),EKEV(K),F(I,J,K,27)
+	    WRITE(40,31) T/3600.,LZ(I),KP,MLT(J),EKEV(K),F(I,J,K,UPA(I))
+822         CONTINUE
+      ENDDO
+      CLOSE(20)
+      CLOSE(30)
+      CLOSE(40)
+!    ENDIF
 
 !.......Write the plasmaspheric electron density [cm-3] (.in)
 	  if(DoUsePlasmasphere)then
@@ -1257,8 +1308,8 @@ subroutine write_dsbnd(S)
   integer, intent(in) :: S
 
   integer :: K, j
-!  character(len=2), DIMENSION(4) :: ST2 = (/ '_e','_h','he','_o' /)
-  character(len=2), DIMENSION(4) :: ST2 = (/'_h','_o','he','_e'/)
+!old  character(len=2), DIMENSION(4) :: ST2 = (/ '_e','_h','he','_o' /) 
+  character(len=2), DIMENSION(4) :: ST2 = (/'_h','_o','he','_e'/) ! as in PARAM.in
   character(len=214) :: NameFluxFile
 
   NameFluxFile=trim(PathRamOut)//RamFileName('Dsbnd/ds'//St2(S),'dat',TimeRamNow)
